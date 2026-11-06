@@ -443,23 +443,38 @@ pub fn notification_center() -> Html {
 
     let dismiss_task = {
         let dispatch = dispatch.clone();
+        let creds = creds.clone();
         Callback::from(move |id: String| {
-            dispatch.reduce_mut(move |state| {
-                if let Some(tasks) = &mut state.active_tasks {
-                    tasks.retain(|t| t.task_id != id);
-                }
-            });
+            {
+                let id = id.clone();
+                dispatch.reduce_mut(move |state| {
+                    if let Some(tasks) = &mut state.active_tasks {
+                        tasks.retain(|t| t.task_id != id);
+                    }
+                });
+            }
+            if let Some((user_id, api_key, server_name)) = creds.clone() {
+                spawn_local(async move {
+                    let _ = crate::requests::notify::dismiss_task(&server_name, &api_key, user_id, &id).await;
+                });
+            }
         })
     };
 
     let clear_done = {
         let dispatch = dispatch.clone();
+        let creds = creds.clone();
         Callback::from(move |_| {
             dispatch.reduce_mut(|state| {
                 if let Some(tasks) = &mut state.active_tasks {
                     tasks.retain(|t| !is_done(&t.status));
                 }
             });
+            if let Some((user_id, api_key, server_name)) = creds.clone() {
+                spawn_local(async move {
+                    let _ = crate::requests::notify::clear_finished_tasks(&server_name, &api_key, user_id).await;
+                });
+            }
         })
     };
 

@@ -121,3 +121,27 @@ pub async fn clear_notifications(
     }
     Ok(())
 }
+
+/// Dismiss (delete) a finished task on the server.
+pub async fn dismiss_task(server_name: &str, api_key: &str, user_id: i32, id: &str) -> Result<(), Error> {
+    let url = format!("{}/api/tasks/{}/dismiss?user_id={}", clean_base(server_name), id, user_id);
+    post_task_action(&url, api_key).await
+}
+
+/// Clear all finished tasks for the user on the server.
+pub async fn clear_finished_tasks(server_name: &str, api_key: &str, user_id: i32) -> Result<(), Error> {
+    let url = format!("{}/api/tasks/clear_finished?user_id={}", clean_base(server_name), user_id);
+    post_task_action(&url, api_key).await
+}
+
+async fn post_task_action(url: &str, api_key: &str) -> Result<(), Error> {
+    let resp = Request::post(url)
+        .header("Api-Key", api_key)
+        .send()
+        .await
+        .map_err(|e| Error::msg(format!("task action: {e}")))?;
+    if !resp.ok() {
+        return Err(Error::msg(format!("task action failed: {}", resp.status())));
+    }
+    Ok(())
+}

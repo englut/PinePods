@@ -480,6 +480,8 @@ fn create_task_routes() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::websocket::get_user_tasks))
         .routes(routes!(handlers::websocket::get_active_tasks))
         .routes(routes!(handlers::websocket::get_task_status))
+        .routes(routes!(handlers::notifications::dismiss_task))
+        .routes(routes!(handlers::notifications::clear_finished_tasks))
 }
 
 fn create_async_routes() -> Router<AppState> {

@@ -5,6 +5,7 @@ mod harness;
 mod support;
 
 mod accounts;
+mod activity_tasks;
 mod ad_downloads;
 mod admin_only;
 mod ai;

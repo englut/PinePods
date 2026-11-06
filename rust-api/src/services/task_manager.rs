@@ -16,6 +16,12 @@ pub enum TaskStatus {
     Failed,
 }
 
+impl TaskStatus {
+    pub fn is_finished(&self) -> bool {
+        matches!(self, TaskStatus::Completed | TaskStatus::Failed)
+    }
+}
+
 /// Durable in-app notification severity. Mirrored on the frontend
 /// (`web/src/components/context.rs`). `warning`/`error` count toward the bell
 /// badge; `info`/`success` do not.
@@ -579,6 +585,42 @@ impl TaskManager {
         // Keep the index alive a bit past a single task so a quiet user's set isn't
         // dropped mid-run; stale members are pruned lazily on read.
         self.redis.expire(&index, 86400 * 8).await?;
+        Ok(())
+    }
+
+    /// Remove one of the user's finished (completed or failed) tasks. Running and pending
+    /// tasks, and tasks of other users, are left alone.
+    pub async fn dismiss_task(&self, user_id: i32, task_id: &str) -> AppResult<()> {
+        let index = Self::task_index_key(user_id);
+        let key = Self::task_key(task_id);
+        if !self.redis.smembers(&index).await?.iter().any(|id| id == task_id) {
+            return Ok(());
+        }
+        let finished = match self.redis.get::<String>(&key).await? {
+            Some(json) => serde_json::from_str::<TaskInfo>(&json).map_or(true, |t| t.status.is_finished()),
+            None => true,
+        };
+        if finished {
+            self.redis.delete(&key).await?;
+            self.redis.srem(&index, task_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Remove all of the user's finished tasks.
+    pub async fn clear_finished_tasks(&self, user_id: i32) -> AppResult<()> {
+        let index = Self::task_index_key(user_id);
+        let finished: Vec<String> = self
+            .get_user_tasks(user_id)
+            .await?
+            .into_iter()
+            .filter(|t| t.status.is_finished())
+            .map(|t| t.id)
+            .collect();
+        for id in finished {
+            self.redis.delete(&Self::task_key(&id)).await?;
+            self.redis.srem(&index, &id).await?;
+        }
         Ok(())
     }
 

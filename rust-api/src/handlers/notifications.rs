@@ -133,3 +133,50 @@ pub async fn clear_notifications(
         .await?;
     Ok(Json(serde_json::json!({ "status": "ok" })))
 }
+
+/// Dismiss (delete) one of the user's finished tasks from the Activity center.
+#[utoipa::path(
+    post,
+    path = "/{task_id}/dismiss",
+    tag = "notifications",
+    params(("task_id" = String, Path), NotificationsQuery),
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Dismissed"),
+        (status = 401, description = "Invalid or missing API key"),
+        (status = 403, description = "Not authorized for this user"),
+    ),
+)]
+pub async fn dismiss_task(
+    Path(id): Path<String>,
+    Query(query): Query<NotificationsQuery>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    authorize(&state, &headers, query.user_id).await?;
+    state.task_manager.dismiss_task(query.user_id, &id).await?;
+    Ok(Json(serde_json::json!({ "status": "ok" })))
+}
+
+/// Clear all of the user's finished tasks from the Activity center.
+#[utoipa::path(
+    post,
+    path = "/clear_finished",
+    tag = "notifications",
+    params(NotificationsQuery),
+    security(("api_key" = [])),
+    responses(
+        (status = 200, description = "Cleared"),
+        (status = 401, description = "Invalid or missing API key"),
+        (status = 403, description = "Not authorized for this user"),
+    ),
+)]
+pub async fn clear_finished_tasks(
+    Query(query): Query<NotificationsQuery>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    authorize(&state, &headers, query.user_id).await?;
+    state.task_manager.clear_finished_tasks(query.user_id).await?;
+    Ok(Json(serde_json::json!({ "status": "ok" })))
+}
