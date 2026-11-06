@@ -3,6 +3,7 @@ use crate::components::context::{AppState, EpisodeDetailState, EpisodeNavigation
 use crate::components::context::NotificationState;
 use crate::components::gen_components::{EpisodeModal, FallbackImage};
 use crate::components::gen_funcs::format_time_rm_hour;
+use crate::components::media_session;
 use crate::components::people::{PeopleLayout, PeopleStrip};
 use crate::components::player_ui::{ProgressLine, SeekBar, SpeedControl, VolumeControl};
 use crate::requests::people_req::call_get_episode_people;
@@ -535,6 +536,27 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
         });
         move || drop(listener)
     });
+
+    use_effect_with((), |_| {
+        media_session::install_handlers();
+        || ()
+    });
+
+    {
+        let current = audio_state.currently_playing.as_ref().map(|p| {
+            (p.title.clone(), p.episode.podcastname.clone(), p.artwork_url.clone())
+        });
+        let playing = audio_state.audio_playing.unwrap_or(false);
+        use_effect_with((current, playing), |(current, playing)| {
+            match current {
+                Some((title, podcast, artwork)) => {
+                    media_session::sync(Some(title), podcast, artwork, *playing)
+                }
+                None => media_session::sync(None, "", "", false),
+            }
+            || ()
+        });
+    }
 
     // Report this device's now-playing state to the server every few seconds for
     // cross-device awareness + remote control. Best-effort; reads the live global

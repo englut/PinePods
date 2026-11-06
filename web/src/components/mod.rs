@@ -23,6 +23,7 @@ pub(crate) mod audio;
 pub(crate) mod click_events;
 pub(crate) mod queue_panel;
 pub(crate) mod queue_manage_modal;
+pub(crate) mod media_session;
 pub(crate) mod context;
 pub(crate) mod desc_impl;
 pub(crate) mod gen_components;
