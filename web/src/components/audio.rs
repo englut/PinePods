@@ -59,6 +59,10 @@ pub struct AudioPlayerProps {
     pub is_video: bool,
 }
 
+pub(crate) fn has_reached_end(time: f64, duration: f64, end_skip: f64) -> bool {
+    duration.is_finite() && duration > 0.0 && time >= duration - end_skip
+}
+
 #[function_component(AudioPlayer)]
 pub fn audio_player(props: &AudioPlayerProps) -> Html {
     let (i18n, _) = use_translation();
@@ -605,11 +609,6 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
     use_effect_with((offline_status.clone(), episode_id.clone()), {
         let audio_dispatch = _audio_dispatch.clone();
         let progress = progress.clone(); // Clone for the interval closure
-        let closure_api_key = api_key.clone();
-        let closure_server_name = server_name.clone();
-        let closure_user_id = user_id.clone();
-        let closure_episode_id = episode_id.clone();
-        let offline_status = offline_status.clone();
         let current_time_local = current_time_local.clone();
         let current_time_formatted_local = current_time_formatted_local.clone();
         move |_| {
@@ -695,72 +694,22 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
 
                     progress.set(progress_percentage);
 
-                    // Episode completion check only happens when we have valid duration
-                    if !duration.is_nan() && duration > 0.0 {
-                        let end_pos_sec = end_pos.clone();
-                        let complete_api_key = closure_api_key.clone();
-                        let complete_server_name = closure_server_name.clone();
-                        let complete_user_id = closure_user_id.clone();
-                        let complete_episode_id = closure_episode_id.clone();
-                        let offline_status_loop = offline_status.unwrap_or(false);
-                        if time_in_seconds >= (duration - end_pos_sec.unwrap()) {
-                            web_sys::console::log_1(&"Episode completed".into());
-                            // Pause and trigger ended event on the appropriate media element
-                            if let Some(media_element) = state_clone.media_element.as_ref() {
-                                media_element.pause().unwrap_or(());
-                                let event = web_sys::Event::new("ended").unwrap();
-                                media_element.dispatch_event(&event).unwrap();
-                            } else if let Some(audio_element) = state_clone.audio_element.as_ref() {
-                                audio_element.pause().unwrap_or(());
-                                let event = web_sys::Event::new("ended").unwrap();
-                                audio_element.dispatch_event(&event).unwrap();
-                            }
-                            // Call the endpoint to mark episode as completed
-                            if offline_status_loop {
-                                // If offline, store the episode in the local database
-                            } else {
-                                // If online, call the endpoint
-                                wasm_bindgen_futures::spawn_local(async move {
-                                    if let (
-                                        Some(complete_api_key),
-                                        Some(complete_server_name),
-                                        Some(complete_user_id),
-                                        Some(complete_episode_id),
-                                    ) = (
-                                        complete_api_key.as_ref(),
-                                        complete_server_name.as_ref(),
-                                        complete_user_id.as_ref(),
-                                        complete_episode_id.as_ref(),
-                                    ) {
-                                        let request = MarkEpisodeCompletedRequest {
-                                            episode_id: *complete_episode_id, // Dereference the option
-                                            user_id: *complete_user_id, // Dereference the option
-                                            is_youtube: is_youtube_vid,
-                                        };
-
-                                        match call_mark_episode_completed(
-                                            &complete_server_name,
-                                            &complete_api_key,
-                                            &request,
-                                        )
-                                        .await
-                                        {
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                web_sys::console::log_1(
-                                                    &format!("Error: {}", e).into(),
-                                                );
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-
-                            // Stop the interval
-                            if let Some(handle) = interval_handle.take() {
-                                handle.cancel();
-                                interval_handle.set(None);
-                            }
+                    // Reaching the outro skip point ends the episode: the ended handler marks it
+                    // completed and moves on, the same as when the media plays to its end.
+                    if has_reached_end(time_in_seconds, duration, end_pos.unwrap_or(0.0)) {
+                        web_sys::console::log_1(&"Episode completed".into());
+                        if let Some(media_element) = state_clone.media_element.as_ref() {
+                            media_element.pause().unwrap_or(());
+                            let event = web_sys::Event::new("ended").unwrap();
+                            media_element.dispatch_event(&event).unwrap();
+                        } else if let Some(audio_element) = state_clone.audio_element.as_ref() {
+                            audio_element.pause().unwrap_or(());
+                            let event = web_sys::Event::new("ended").unwrap();
+                            audio_element.dispatch_event(&event).unwrap();
+                        }
+                        if let Some(handle) = interval_handle.take() {
+                            handle.cancel();
+                            interval_handle.set(None);
                         }
                     }
             });
@@ -948,6 +897,29 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
                     } else {
                         wasm_bindgen_futures::spawn_local(async move {
                             let mut auto_play_handled = false;
+
+                            // Mark the finished episode completed before anything else plays:
+                            // starting the next episode tears down this one's progress interval.
+                            if let (Some(Some(api_key_val)), Some(user_id_val), Some(server_name_val), Some(ep_id)) =
+                                (api_key.as_ref(), user_id, server_name.as_ref(), current_episode_id)
+                            {
+                                let request = MarkEpisodeCompletedRequest {
+                                    episode_id: ep_id,
+                                    user_id: user_id_val,
+                                    is_youtube: is_youtube_vid,
+                                };
+                                if let Err(e) = call_mark_episode_completed(
+                                    server_name_val,
+                                    &Some(api_key_val.clone()),
+                                    &request,
+                                )
+                                .await
+                                {
+                                    web_sys::console::log_1(
+                                        &format!("Failed to mark episode completed: {}", e).into(),
+                                    );
+                                }
+                            }
 
                             // PRIORITY 1: Playlist context auto-play
                             // Read live state via dispatch to avoid stale snapshot from render time.

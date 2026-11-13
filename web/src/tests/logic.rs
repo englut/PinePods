@@ -113,3 +113,20 @@ fn gravatars_use_the_address_hash_and_a_size() {
     assert!(url.contains("80"), "{url}");
     assert!(!url.contains("someone@example.com"), "the address itself isn't sent: {url}");
 }
+
+#[wasm_bindgen_test]
+fn an_episode_ends_at_its_length_or_its_outro_skip() {
+    use crate::components::audio::has_reached_end;
+    assert!(!has_reached_end(3599.0, 3600.0, 0.0));
+    assert!(has_reached_end(3600.0, 3600.0, 0.0), "played to the end");
+    assert!(has_reached_end(3570.0, 3600.0, 30.0), "reached the outro skip");
+    assert!(!has_reached_end(3569.0, 3600.0, 30.0));
+}
+
+#[wasm_bindgen_test]
+fn an_unknown_length_never_ends_the_episode() {
+    use crate::components::audio::has_reached_end;
+    assert!(!has_reached_end(10.0, f64::NAN, 0.0), "still loading");
+    assert!(!has_reached_end(10.0, f64::INFINITY, 0.0), "live stream");
+    assert!(!has_reached_end(0.0, 0.0, 0.0));
+}
