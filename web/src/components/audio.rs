@@ -53,6 +53,10 @@ pub struct AudioPlayerProps {
     pub is_video: bool,
 }
 
+pub(crate) fn has_reached_end(time: f64, duration: f64, end_skip: f64) -> bool {
+    duration.is_finite() && duration > 0.0 && time >= duration - end_skip
+}
+
 #[function_component(AudioPlayer)]
 pub fn audio_player(props: &AudioPlayerProps) -> Html {
     let (i18n, _) = use_translation();
@@ -627,29 +631,22 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
 
                     progress.set(progress_percentage);
 
-                    // Episode completion check only happens when we have valid duration
-                    if !duration.is_nan() && duration > 0.0 {
-                        let end_pos_sec = end_pos.clone();
-                        if time_in_seconds >= (duration - end_pos_sec.unwrap()) {
-                            web_sys::console::log_1(&"Episode completed".into());
-                            // Pause and trigger ended event on the appropriate media element
-                            if let Some(media_element) = state_clone.media_element.as_ref() {
-                                media_element.pause().unwrap_or(());
-                                let event = web_sys::Event::new("ended").unwrap();
-                                media_element.dispatch_event(&event).unwrap();
-                            } else if let Some(audio_element) = state_clone.audio_element.as_ref() {
-                                audio_element.pause().unwrap_or(());
-                                let event = web_sys::Event::new("ended").unwrap();
-                                audio_element.dispatch_event(&event).unwrap();
-                            }
-                            // Finished: recorded with the position, sent when there's a connection.
-                            crate::components::progress::finished();
-
-                            // Stop the interval
-                            if let Some(handle) = interval_handle.take() {
-                                handle.cancel();
-                                interval_handle.set(None);
-                            }
+                    // Reaching the outro skip point ends the episode: the ended handler records it
+                    // finished and moves on, the same as when the media plays to its end.
+                    if has_reached_end(time_in_seconds, duration, end_pos.unwrap_or(0.0)) {
+                        web_sys::console::log_1(&"Episode completed".into());
+                        if let Some(media_element) = state_clone.media_element.as_ref() {
+                            media_element.pause().unwrap_or(());
+                            let event = web_sys::Event::new("ended").unwrap();
+                            media_element.dispatch_event(&event).unwrap();
+                        } else if let Some(audio_element) = state_clone.audio_element.as_ref() {
+                            audio_element.pause().unwrap_or(());
+                            let event = web_sys::Event::new("ended").unwrap();
+                            audio_element.dispatch_event(&event).unwrap();
+                        }
+                        if let Some(handle) = interval_handle.take() {
+                            handle.cancel();
+                            interval_handle.set(None);
                         }
                     }
             });
@@ -702,6 +699,10 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
 
                     // Set flag to indicate we're processing
                     processing_ended_clone.set(true);
+
+                    // Recorded before anything else plays: once the next episode starts, the
+                    // progress recorder would report this one as left part-way.
+                    crate::components::progress::finished();
 
                     let processing_flag_for_reset = processing_ended_clone.clone();
                     let server_name = server_name.clone();
